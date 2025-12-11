@@ -8,102 +8,102 @@ import os
 
 # Minimalist App Theme (Tokyo Night inspired)
 CSS = """
-Screen {
-	align: center middle;
-	background: #1a1b26;
-	color: #a9b1d6;
-}
+	Screen {
+		align: center middle;
+		background: #1a1b26;
+		color: #a9b1d6;
+	}
 
-Header {
-	background: #16161e;
-	color: #7aa2f7;
-	height: 3;
-	content-align: center middle;
-	text-style: bold;
-}
+	Header {
+		background: #16161e;
+		color: #7aa2f7;
+		height: 3;
+		content-align: center middle;
+		text-style: bold;
+	}
 
-Footer {
-	background: #16161e;
-	color: #565f89;
-	height: 1;
-}
+	Footer {
+		background: #16161e;
+		color: #565f89;
+		height: 1;
+	}
 
-/* Menu Container - Centered Card */
-.menu-container {
-	width: 60%;
-	height: auto;
-	max-height: 80%;
-	border: wide #7aa2f7;
-	background: #24283b;
-	padding: 1 2;
-	box-sizing: border-box;
-}
+	/* Menu Container - Centered Card */
+	.menu-container {
+		width: 60%;
+		height: auto;
+		max-height: 80%;
+		border: wide #7aa2f7;
+		background: #24283b;
+		padding: 1 2;
+		box-sizing: border-box;
+	}
 
-.title {
-	text-align: center;
-	color: #7aa2f7;
-	text-style: bold;
-	margin-bottom: 2;
-	padding-bottom: 1;
-	border-bottom: solid #414868;
-}
+	.title {
+		text-align: center;
+		color: #7aa2f7;
+		text-style: bold;
+		margin-bottom: 2;
+		padding-bottom: 1;
+		border-bottom: solid #414868;
+	}
 
-/* List View Styling */
-ListView {
-	height: auto;
-	max-height: 20;
-	border: none;
-	scrollbar-gutter: stable;
-}
+	/* List View Styling */
+	ListView {
+		height: auto;
+		max-height: 20;
+		border: none;
+		scrollbar-gutter: stable;
+	}
 
-ListItem {
-	padding: 1 2;
-	background: #24283b;
-	color: #c0caf5;
-	border-left: solid #24283b; /* Invisible border for alignment */
-}
+	ListItem {
+		padding: 1 2;
+		background: #24283b;
+		color: #c0caf5;
+		border-left: solid #24283b; /* Invisible border for alignment */
+	}
 
-ListItem:hover {
-	background: #292e42;
-}
+	ListItem:hover {
+		background: #292e42;
+	}
 
-ListItem.-highlight {
-	background: #414868;
-	color: #7aa2f7;
-	text-style: bold;
-	border-left: wide #7aa2f7; /* Accent border on selected */
-}
+	ListItem.-highlight {
+		background: #414868;
+		color: #7aa2f7;
+		text-style: bold;
+		border-left: wide #7aa2f7; /* Accent border on selected */
+	}
 
-/* DataTable Styling */
-DataTable {
-	background: #1a1b26;
-	border: none;
-}
+	/* DataTable Styling */
+	DataTable {
+		background: #1a1b26;
+		border: none;
+	}
 
-DataTable > .datatable--header {
-	background: #414868;
-	color: #7aa2f7;
-	text-style: bold;
-}
+	DataTable > .datatable--header {
+		background: #414868;
+		color: #7aa2f7;
+		text-style: bold;
+	}
 
-DataTable > .datatable--cursor {
-	background: #7aa2f7;
-	color: #1a1b26;
-}
+	DataTable > .datatable--cursor {
+		background: #7aa2f7;
+		color: #1a1b26;
+	}
 
-/* Helper Messages */
-.message {
-	text-align: center;
-	color: #eb4d4b;
-	margin: 2;
-}
+	/* Helper Messages */
+	.message {
+		text-align: center;
+		color: #eb4d4b;
+		margin: 2;
+	}
 
-.instruction {
-	text-align: center;
-	color: #565f89;
-	margin-top: 1;
-	text-style: italic;
-}
+	.instruction {
+		text-align: center;
+		color: #565f89;
+		margin-top: 1;
+		text-style: italic;
+	}
 """
 
 class SelectionListItem(ListItem):
