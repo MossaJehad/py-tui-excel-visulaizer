@@ -1,10 +1,12 @@
 from textual.app import App, ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, ListView, ListItem, DataTable, Label
-from textual.containers import Container
+from textual.widgets import Header, Footer, Static, ListView, ListItem, DataTable, Label, TabbedContent, TabPane
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual import on, work
 import pandas as pd
+import numpy as np
 import os
+from collections import Counter
 
 # Minimalist App Theme (Tokyo Night inspired)
 CSS = """
@@ -104,7 +106,145 @@ CSS = """
 		margin-top: 1;
 		text-style: italic;
 	}
+
+	/* Stats Panel */
+	.stats-container {
+		height: 100%;
+		background: #1a1b26;
+		padding: 1 2;
+	}
+
+	.stat-card {
+		background: #24283b;
+		border: solid #414868;
+		padding: 1 2;
+		margin: 1 0;
+	}
+
+	.stat-title {
+		color: #7aa2f7;
+		text-style: bold;
+		margin-bottom: 1;
+	}
+
+	.stat-value {
+		color: #9ece6a;
+		text-style: bold;
+	}
+
+	.chart-container {
+		background: #1a1b26;
+		padding: 1 2;
+		border: solid #414868;
+		margin: 1 0;
+	}
+
+	.chart-title {
+		color: #7aa2f7;
+		text-style: bold;
+		text-align: center;
+		margin-bottom: 1;
+	}
+
+	TabbedContent {
+		height: 100%;
+	}
+
+	TabPane {
+		padding: 0;
+	}
 """
+
+class BarChart(Static):
+	"""A simple ASCII bar chart widget."""
+
+	def __init__(self, data: dict, max_bar_length: int = 40):
+		super().__init__()
+		self.data = data
+		self.max_bar_length = max_bar_length
+
+	def render(self) -> str:
+		if not self.data:
+			return "No data to display"
+
+		max_value = max(self.data.values()) if self.data.values() else 1
+		lines = []
+
+		for label, value in self.data.items():
+			bar_length = int((value / max_value) * self.max_bar_length) if max_value > 0 else 0
+			bar = "█" * bar_length
+			lines.append(f"{label:15} │ {bar} {value}")
+
+		return "\n".join(lines)
+
+
+class StatsPanel(Static):
+	"""Statistics panel for numeric columns."""
+
+	def __init__(self, df: pd.DataFrame):
+		super().__init__()
+		self.df = df
+
+	def render(self) -> str:
+		lines = []
+		lines.append("📊 [bold cyan]Dataset Statistics[/bold cyan]\n")
+		lines.append(f"Rows: [green]{len(self.df)}[/green]")
+		lines.append(f"Columns: [green]{len(self.df.columns)}[/green]\n")
+
+		# Numeric columns statistics
+		numeric_cols = self.df.select_dtypes(include=[np.number]).columns
+		if len(numeric_cols) > 0:
+			lines.append("[bold cyan]Numeric Columns:[/bold cyan]")
+			for col in numeric_cols[:5]:  # Show first 5 numeric columns
+				try:
+					lines.append(f"\n[yellow]{col}[/yellow]")
+					lines.append(f"  Min:  {self.df[col].min():.2f}")
+					lines.append(f"  Max:  {self.df[col].max():.2f}")
+					lines.append(f"  Mean: {self.df[col].mean():.2f}")
+					lines.append(f"  Std:  {self.df[col].std():.2f}")
+				except:
+					pass
+
+		# Categorical columns
+		cat_cols = self.df.select_dtypes(include=['object']).columns
+		if len(cat_cols) > 0:
+			lines.append(f"\n[bold cyan]Text Columns:[/bold cyan] {len(cat_cols)}")
+			for col in cat_cols[:3]:  # Show first 3 categorical columns
+				unique_count = self.df[col].nunique()
+				lines.append(f"  {col}: {unique_count} unique values")
+
+		return "\n".join(lines)
+
+
+class CategoryChart(Static):
+	"""Display top categories as a bar chart."""
+
+	def __init__(self, df: pd.DataFrame, column: str, top_n: int = 10):
+		super().__init__()
+		self.df = df
+		self.column = column
+		self.top_n = top_n
+
+	def render(self) -> str:
+		if self.column not in self.df.columns:
+			return f"Column '{self.column}' not found"
+
+		value_counts = self.df[self.column].value_counts().head(self.top_n)
+
+		lines = []
+		lines.append(f"[bold cyan]Top {self.top_n} - {self.column}[/bold cyan]\n")
+
+		max_value = value_counts.max() if len(value_counts) > 0 else 1
+		max_bar_length = 30
+
+		for label, count in value_counts.items():
+			bar_length = int((count / max_value) * max_bar_length) if max_value > 0 else 0
+			bar = "█" * bar_length
+			label_str = str(label)[:20]  # Truncate long labels
+			lines.append(f"{label_str:20} │ {bar} {count}")
+
+		return "\n".join(lines)
+
 
 class SelectionListItem(ListItem):
 	"""A custom ListItem that keeps track of the value it represents."""
@@ -203,16 +343,27 @@ class SheetSelectionScreen(Screen):
 
 
 class DataViewerScreen(Screen):
-	"""Screen to view the Excel data."""
+	"""Screen to view the Excel data with statistics and visualizations."""
 
 	def __init__(self, file_path: str, sheet_name: str):
 		super().__init__()
 		self.file_path = file_path
 		self.sheet_name = sheet_name
+		self.df = None
 
 	def compose(self) -> ComposeResult:
-		# yield Header()
-		yield DataTable()
+		with TabbedContent():
+			with TabPane("📋 Data", id="data-tab"):
+				yield DataTable(id="data-table")
+
+			with TabPane("📊 Statistics", id="stats-tab"):
+				with VerticalScroll(classes="stats-container"):
+					yield Static(id="stats-panel")
+
+			with TabPane("📈 Charts", id="charts-tab"):
+				with VerticalScroll(classes="stats-container"):
+					yield Static(id="charts-panel")
+
 		yield Footer()
 
 	def on_mount(self):
@@ -221,33 +372,100 @@ class DataViewerScreen(Screen):
 
 	@work(thread=True)
 	def load_data(self):
-		table = self.query_one(DataTable)
 		try:
-			df = pd.read_excel(self.file_path, sheet_name=self.sheet_name)
-			df = df.fillna("") # Handle NaNs
+			self.df = pd.read_excel(self.file_path, sheet_name=self.sheet_name)
 
-			# Prepare data for DataTable
-			columns = [str(col) for col in df.columns]
-			rows = df.values.tolist()
-			# Convert all cells to strings for display safety
+			# Prepare data for display
+			df_display = self.df.fillna("")
+			columns = [str(col) for col in df_display.columns]
+			rows = df_display.values.tolist()
 			rows = [[str(cell) for cell in row] for row in rows]
 
-			self.app.call_from_thread(self.populate_table, table, columns, rows)
+			self.app.call_from_thread(self.populate_ui, columns, rows)
 		except Exception as e:
-			# In a real app we might want to pop a modal or show error
-			pass
+			self.app.call_from_thread(self.show_error, str(e))
 
-	def populate_table(self, table, columns, rows):
+	def populate_ui(self, columns, rows):
+		# Populate data table
+		table = self.query_one("#data-table", DataTable)
 		table.add_columns(*columns)
 		table.add_rows(rows)
 		table.focus()
+
+		# Populate statistics
+		self.populate_statistics()
+
+		# Populate charts
+		self.populate_charts()
+
+	def populate_statistics(self):
+		"""Populate the statistics panel."""
+		stats_panel = self.query_one("#stats-panel", Static)
+		stats_widget = StatsPanel(self.df)
+		stats_panel.update(stats_widget.render())
+
+	def populate_charts(self):
+		"""Populate the charts panel."""
+		charts_panel = self.query_one("#charts-panel", Static)
+
+		lines = []
+		lines.append("[bold cyan]Data Visualizations[/bold cyan]\n")
+
+		# Find columns suitable for visualization
+		numeric_cols = self.df.select_dtypes(include=[np.number]).columns.tolist()
+		categorical_cols = self.df.select_dtypes(include=['object']).columns.tolist()
+
+		# Numeric column distribution
+		if numeric_cols:
+			lines.append("\n[bold yellow]Numeric Distributions:[/bold yellow]\n")
+			for col in numeric_cols[:3]:  # Show first 3 numeric columns
+				try:
+					# Create histogram bins
+					hist, bins = np.histogram(self.df[col].dropna(), bins=10)
+					lines.append(f"\n[cyan]{col}[/cyan]")
+					max_hist = max(hist) if len(hist) > 0 else 1
+					for i, count in enumerate(hist):
+						bar_length = int((count / max_hist) * 30) if max_hist > 0 else 0
+						bar = "█" * bar_length
+						bin_label = f"{bins[i]:.1f}-{bins[i+1]:.1f}"
+						lines.append(f"{bin_label:15} │ {bar} {count}")
+				except:
+					pass
+
+		# Categorical column charts
+		if categorical_cols:
+			lines.append("\n\n[bold yellow]Category Distributions:[/bold yellow]\n")
+			for col in categorical_cols[:3]:  # Show first 3 categorical columns
+				try:
+					value_counts = self.df[col].value_counts().head(10)
+					if len(value_counts) > 0:
+						lines.append(f"\n[cyan]Top 10 - {col}[/cyan]")
+						max_value = value_counts.max()
+						for label, count in value_counts.items():
+							bar_length = int((count / max_value) * 30) if max_value > 0 else 0
+							bar = "█" * bar_length
+							label_str = str(label)[:20]
+							lines.append(f"{label_str:20} │ {bar} {count}")
+				except:
+					pass
+
+		if not numeric_cols and not categorical_cols:
+			lines.append("\n[red]No data available for visualization[/red]")
+
+		charts_panel.update("\n".join(lines))
+
+	def show_error(self, error):
+		# Show error in a label or modal
+		pass
 
 
 class ExcelViewerApp(App):
 	CSS = CSS
 	BINDINGS = [
 		("q", "quit", "Quit"),
-		("escape", "pop_screen", "Back")
+		("escape", "pop_screen", "Back"),
+		("tab", "next_tab", "Next Tab"),
+		("shift+tab", "previous_tab", "Previous Tab")
 	]
 
 	def on_mount(self):
@@ -258,6 +476,18 @@ class ExcelViewerApp(App):
 			self.pop_screen()
 		else:
 			self.exit()
+
+	def action_next_tab(self):
+		"""Switch to the next tab."""
+		tabbed_content = self.screen.query(TabbedContent).first()
+		if tabbed_content:
+			tabbed_content.action_next_tab()
+
+	def action_previous_tab(self):
+		"""Switch to the previous tab."""
+		tabbed_content = self.screen.query(TabbedContent).first()
+		if tabbed_content:
+			tabbed_content.action_previous_tab()
 
 if __name__ == "__main__":
 	ExcelViewerApp().run()
