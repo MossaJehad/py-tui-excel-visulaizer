@@ -1,11 +1,13 @@
 from textual.app import App, ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, ListView, ListItem, DataTable, Label, TabbedContent, TabPane
+from textual.widgets import Header, Footer, Static, ListView, ListItem, DataTable, Label, TabbedContent, TabPane, Input, Button
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual import on, work
 import pandas as pd
 import numpy as np
 import os
+import json
+import google.generativeai as genai
 from collections import Counter
 
 # Minimalist App Theme (Tokyo Night inspired)
@@ -255,6 +257,25 @@ class SelectionListItem(ListItem):
 	def compose(self) -> ComposeResult:
 		yield Label(self.label_text)
 
+class ApiKeyScreen(Screen):
+	"""Screen to enter Google API Key."""
+
+	def compose(self) -> ComposeResult:
+		with Container(classes="menu-container"):
+			yield Label("🔑 Enter Google API Key", classes="title")
+			yield Label("A free API key is required for AI features.", classes="instruction")
+			yield Input(placeholder="AIzaSy...", id="api-key-input", password=True)
+			yield Button("Submit", id="submit-key", variant="primary")
+			yield Label("Get one at: https://aistudio.google.com/app/apikey", classes="instruction")
+
+	@on(Button.Pressed, "#submit-key")
+	def submit_key(self):
+		key = self.query_one("#api-key-input").value
+		if key:
+			os.environ["GOOGLE_API_KEY"] = key
+			self.app.pop_screen()
+			self.app.push_screen(FileSelectionScreen())
+
 class FileSelectionScreen(Screen):
 	"""Screen to select an Excel file from the ./xlsx directory."""
 
@@ -407,50 +428,114 @@ class DataViewerScreen(Screen):
 	def populate_charts(self):
 		"""Populate the charts panel."""
 		charts_panel = self.query_one("#charts-panel", Static)
+		charts_panel.update("🤖 Asking AI for visualization suggestions...\n(This might take a few seconds)")
+		self.generate_ai_charts()
 
+	@work(thread=True)
+	def generate_ai_charts(self):
+		api_key = os.environ.get("GOOGLE_API_KEY")
+		if not api_key:
+			self.app.call_from_thread(self.show_error, "No API Key found")
+			return
+
+		try:
+			genai.configure(api_key=api_key)
+			model = genai.GenerativeModel('gemini-1.5-flash')
+
+			# Prepare summary
+			buffer = []
+			buffer.append("Columns: " + ", ".join([str(c) for c in self.df.columns]))
+
+			# Sample data (first 5 rows)
+			sample_data = self.df.head(5).to_string()
+			buffer.append(f"Sample data:\n{sample_data}")
+
+			summary = "\n".join(buffer)
+
+			prompt = f"""
+			Analyze this dataset summary:
+			{summary}
+
+			Suggest 3 visualizations to understand this data.
+			Return ONLY a valid JSON array of objects. Do not use markdown code blocks.
+			Each object must have:
+			- "title": string
+			- "type": "bar" or "pie" or "histogram"
+			- "column": string (for histogram/pie) or "x_column" and "y_column" (for bar)
+			- "explanation": short string
+
+			For 'bar', use a categorical column for x_column and numeric for y_column.
+			For 'pie', use a categorical column.
+			For 'histogram', use a numeric column.
+			"""
+
+			response = model.generate_content(prompt)
+			text = response.text.strip()
+			# Remove markdown code blocks if present
+			if text.startswith("```json"):
+				text = text[7:]
+			if text.startswith("```"):
+				text = text[3:]
+			if text.endswith("```"):
+				text = text[:-3]
+
+			suggestions = json.loads(text)
+			self.app.call_from_thread(self.render_ai_charts, suggestions)
+
+		except Exception as e:
+			self.app.call_from_thread(self.show_error, f"AI Error: {str(e)}")
+
+	def render_ai_charts(self, suggestions):
+		charts_panel = self.query_one("#charts-panel", Static)
 		lines = []
-		lines.append("[bold cyan]Data Visualizations[/bold cyan]\n")
+		lines.append("[bold cyan]🤖 AI Suggested Visualizations[/bold cyan]\n")
 
-		# Find columns suitable for visualization
-		numeric_cols = self.df.select_dtypes(include=[np.number]).columns.tolist()
-		categorical_cols = self.df.select_dtypes(include=['object']).columns.tolist()
+		for item in suggestions:
+			try:
+				lines.append(f"\n[bold yellow]{item.get('title', 'Chart')}[/bold yellow]")
+				lines.append(f"[italic]{item.get('explanation', '')}[/italic]")
 
-		# Numeric column distribution
-		if numeric_cols:
-			lines.append("\n[bold yellow]Numeric Distributions:[/bold yellow]\n")
-			for col in numeric_cols[:3]:  # Show first 3 numeric columns
-				try:
-					# Create histogram bins
-					hist, bins = np.histogram(self.df[col].dropna(), bins=10)
-					lines.append(f"\n[cyan]{col}[/cyan]")
-					max_hist = max(hist) if len(hist) > 0 else 1
-					for i, count in enumerate(hist):
-						bar_length = int((count / max_hist) * 30) if max_hist > 0 else 0
-						bar = "█" * bar_length
-						bin_label = f"{bins[i]:.1f}-{bins[i+1]:.1f}"
-						lines.append(f"{bin_label:15} │ {bar} {count}")
-				except:
-					pass
+				chart_type = item.get("type")
 
-		# Categorical column charts
-		if categorical_cols:
-			lines.append("\n\n[bold yellow]Category Distributions:[/bold yellow]\n")
-			for col in categorical_cols[:3]:  # Show first 3 categorical columns
-				try:
-					value_counts = self.df[col].value_counts().head(10)
-					if len(value_counts) > 0:
-						lines.append(f"\n[cyan]Top 10 - {col}[/cyan]")
-						max_value = value_counts.max()
-						for label, count in value_counts.items():
-							bar_length = int((count / max_value) * 30) if max_value > 0 else 0
-							bar = "█" * bar_length
-							label_str = str(label)[:20]
-							lines.append(f"{label_str:20} │ {bar} {count}")
-				except:
-					pass
+				if chart_type == "bar":
+					x_col = item.get("x_column")
+					y_col = item.get("y_column")
+					if x_col in self.df.columns and y_col in self.df.columns:
+						# Group by x and sum y
+						data = self.df.groupby(x_col)[y_col].sum().head(10).to_dict()
+						chart = BarChart(data)
+						lines.append(chart.render())
+					else:
+						lines.append(f"[red]Columns {x_col} or {y_col} not found[/red]")
 
-		if not numeric_cols and not categorical_cols:
-			lines.append("\n[red]No data available for visualization[/red]")
+				elif chart_type == "pie":
+					col = item.get("column")
+					if col in self.df.columns:
+						chart = CategoryChart(self.df, col)
+						lines.append(chart.render())
+					else:
+						lines.append(f"[red]Column {col} not found[/red]")
+
+				elif chart_type == "histogram":
+					col = item.get("column")
+					if col in self.df.columns:
+						try:
+							hist, bins = np.histogram(self.df[col].dropna(), bins=10)
+							max_hist = max(hist) if len(hist) > 0 else 1
+							for i, count in enumerate(hist):
+								bar_length = int((count / max_hist) * 30) if max_hist > 0 else 0
+								bar = "█" * bar_length
+								bin_label = f"{bins[i]:.1f}-{bins[i+1]:.1f}"
+								lines.append(f"{bin_label:15} │ {bar} {count}")
+						except:
+							lines.append("[red]Could not create histogram[/red]")
+					else:
+						lines.append(f"[red]Column {col} not found[/red]")
+
+				lines.append("\n" + "─" * 40)
+
+			except Exception as e:
+				lines.append(f"[red]Error rendering chart: {e}[/red]")
 
 		charts_panel.update("\n".join(lines))
 
@@ -469,7 +554,10 @@ class ExcelViewerApp(App):
 	]
 
 	def on_mount(self):
-		self.push_screen(FileSelectionScreen())
+		if not os.environ.get("GOOGLE_API_KEY"):
+			self.push_screen(ApiKeyScreen())
+		else:
+			self.push_screen(FileSelectionScreen())
 
 	def action_pop_screen(self):
 		if len(self.screen_stack) > 1:
